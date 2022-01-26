@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.utils import timezone
 from django.urls import reverse
 
-from polls.models import Question
+from polls.models import Question, Choice
 
 
 class QuestionModelTests(TestCase):
@@ -22,7 +22,7 @@ class QuestionModelTests(TestCase):
 
     def test_was_published_recently_with_old_question(self):
         """
-        was_published_recently() returns False for questions whose pob_date
+        was_published_recently() returns False for questions whose pub_date
         is older than 1 day.
         :return:
         """
@@ -32,7 +32,7 @@ class QuestionModelTests(TestCase):
 
     def test_was_published_recently_with_recent_question(self):
         """
-        was_published_recently() returns True for questions whose pu_date
+        was_published_recently() returns True for questions whose pub_date
         is within the last day.
         :return:
         """
@@ -52,6 +52,16 @@ def create_question(question_text, days):
     """
     time = timezone.now() + datetime.timedelta(days=days)
     return Question.objects.create(question_text=question_text, pub_date=time)
+
+
+def create_choice(choice_text, question):
+    """
+    Create a choice with the given 'choice_text'
+    :param choice_text:
+    :param question:
+    :return:
+    """
+    return Choice.objects.create(choice_text=choice_text, question_id=question)
 
 
 class QuestionIndexViewTests(TestCase):
@@ -116,6 +126,28 @@ class QuestionIndexViewTests(TestCase):
             [question2, question1],
         )
 
+    def test_question_without_choice(self):
+        """
+        Questions without choice aren't displayed on the index page.
+        :return:
+        """
+        question_without_choice = create_question(question_text="Question without Choice.", days=-5)
+        response = self.client.get(reverse('polls:index'))
+        self.assertQuerysetEqual(
+            response.context['latest_question_list'],
+            [],
+        )
+
+    def test_question_with_choice(self):
+        """
+        Questions with choice are displayed on the index page.
+        :return:
+        """
+        question_with_choice = create_question(question_text="Question with Choice", days=-5)
+        choice_with_question = create_choice(choice_text="Choice with Question", question=question_with_choice.id)
+        response = self.client.get(reverse('polls:index'))
+        self.assertQuerysetEqual(response.context['latest_question_list'], [question_with_choice])
+
 
 class QuestionDetailViewTests(TestCase):
 
@@ -136,7 +168,31 @@ class QuestionDetailViewTests(TestCase):
         displays the question's text.
         :return:
         """
-        past_question = create_question(question_text='Past Question.', days=-5)
+        past_question = create_question(question_text='Past question.', days=-5)
         url = reverse('polls:detail', args=(past_question.id,))
+        response = self.client.get(url)
+        self.assertContains(response, past_question.question_text)
+
+
+class QuestionResultsViewTests(TestCase):
+    def test_future_question(self):
+        """
+        The result view of a question with a pub_date in the future
+        returns a 404 not found
+        :return:
+        """
+        future_question = create_question(question_text='Future question.', days=5)
+        url = reverse('poll/results', args=(future_question.id,))
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_past_question(self):
+        """
+        The result view of a question with a pub_date in the past
+        displays the question's result vote
+        :return:
+        """
+        past_question = create_question(question_text='Past question.', days=-5)
+        url = reverse('polls:results', args=(past_question.id,))
         response = self.client.get(url)
         self.assertContains(response, past_question.question_text)
